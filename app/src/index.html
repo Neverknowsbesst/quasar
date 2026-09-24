@@ -132,21 +132,44 @@
         <header class="cabecera">
           <div>
             <h1>Ajustes</h1>
-            <p class="bajada">Conecta Quasar a Claude. Sin API key funciona en modo local, mostrando los fragmentos más relevantes.</p>
+            <p class="bajada">Conecta Quasar a OpenAI o a Claude. Sin API key funciona en modo local, mostrando los fragmentos más relevantes.</p>
           </div>
         </header>
         <form class="tarjeta form angosto" id="form-ajustes">
-          <label>API key de Anthropic
-            <input name="clave_api" type="password" autocomplete="off" placeholder="sk-ant-…" />
-            <span class="tenue chico" id="pista-clave"></span>
-          </label>
-          <label>Modelo
-            <select name="modelo">
-              <option value="claude-opus-5">Claude Opus 5 — máxima precisión</option>
-              <option value="claude-sonnet-5">Claude Sonnet 5 — equilibrado</option>
-              <option value="claude-haiku-4-5">Claude Haiku 4.5 — más rápido</option>
+          <label>Proveedor de IA
+            <select name="proveedor">
+              <option value="openai">OpenAI (GPT)</option>
+              <option value="anthropic">Anthropic (Claude)</option>
             </select>
           </label>
+          <div class="grupo-proveedor" data-proveedor="openai">
+            <label>API key de OpenAI
+              <input name="clave_openai" type="password" autocomplete="off" placeholder="sk-…" />
+              <span class="tenue chico" id="pista-clave-openai"></span>
+            </label>
+            <label>Modelo
+              <input name="modelo_openai" list="modelos-openai" autocomplete="off" />
+              <datalist id="modelos-openai">
+                <option value="gpt-5-mini">Económico y rápido</option>
+                <option value="gpt-5">Máxima precisión</option>
+                <option value="gpt-5-nano">El más barato</option>
+              </datalist>
+              <span class="tenue chico">Puedes escribir cualquier modelo de tu cuenta de OpenAI.</span>
+            </label>
+          </div>
+          <div class="grupo-proveedor" data-proveedor="anthropic">
+            <label>API key de Anthropic
+              <input name="clave_api" type="password" autocomplete="off" placeholder="sk-ant-…" />
+              <span class="tenue chico" id="pista-clave"></span>
+            </label>
+            <label>Modelo
+              <select name="modelo">
+                <option value="claude-opus-5">Claude Opus 5 — máxima precisión</option>
+                <option value="claude-sonnet-5">Claude Sonnet 5 — equilibrado</option>
+                <option value="claude-haiku-4-5">Claude Haiku 4.5 — más rápido</option>
+              </select>
+            </label>
+          </div>
           <div class="form-barra">
             <div class="espaciador"></div>
             <button type="submit" class="btn primario">Guardar</button>

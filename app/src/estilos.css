@@ -221,6 +221,7 @@ details.pasos code { font-family: var(--mono); font-size: 12px; color: var(--tex
 
 .tarjeta { background: var(--superficie); border: 1px solid var(--borde); border-radius: 10px; padding: 20px; box-shadow: var(--sombra); }
 .form { display: flex; flex-direction: column; gap: 14px; margin-bottom: 24px; }
+.grupo-proveedor { display: flex; flex-direction: column; gap: 14px; }
 .form.angosto { max-width: 520px; margin-left: 0; }
 .form label { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; color: var(--tenue); }
 .form label.en-linea { flex-direction: row; align-items: center; gap: 8px; }

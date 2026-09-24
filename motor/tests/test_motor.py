@@ -59,7 +59,7 @@ def bloque(**kw):
 
 def test_bucle_del_agente_usa_herramientas_y_cita_fuentes(motor, monkeypatch):
     """Simula a Claude: primero pide buscar_manuales, luego responde citando."""
-    motor.ajustes.actualizar(clave_api="sk-prueba")
+    motor.ajustes.actualizar(proveedor="anthropic", clave_api="sk-prueba")
     llamadas = []
 
     class MensajesFalsos:
@@ -77,24 +77,89 @@ def test_bucle_del_agente_usa_herramientas_y_cita_fuentes(motor, monkeypatch):
     monkeypatch.setattr("anthropic.Anthropic", lambda **_: cliente_falso)
 
     respuesta = motor.consultar("error E-104")
-    assert respuesta.modo == "claude"
+    assert respuesta.modo == "anthropic"
     assert respuesta.pasos[0]["herramienta"] == "buscar_manuales"
     assert len(respuesta.fuentes) == 1 and respuesta.fuentes[0]["tipo"] == "manual"
-    assert llamadas[0]["model"] == agente.MODELO_POR_DEFECTO
+    assert llamadas[0]["model"] == agente.MODELO_POR_DEFECTO["anthropic"]
     assert llamadas[0]["fallbacks"] == "default"
     # El hilo conserva la conversación para preguntas de seguimiento.
     assert len(motor.hilos[respuesta.hilo_id].mensajes) == 4
 
 
-def test_si_falla_claude_pasa_a_modo_local(motor, monkeypatch):
-    motor.ajustes.actualizar(clave_api="sk-prueba")
+def llamada_herramienta(id_, nombre, argumentos):
+    return bloque(id=id_, type="function", function=bloque(name=nombre, arguments=argumentos))
 
+
+def test_bucle_openai_usa_herramientas_y_cita_fuentes(motor, monkeypatch):
+    """Simula a OpenAI: pide buscar_manuales y buscar_bitacora a la vez, luego responde citando."""
+    motor.ajustes.actualizar(proveedor="openai", clave_openai="sk-openai-prueba")
+    motor.bc.agregar_arreglo(maquina="SH-900", codigo_error="E-104", sintoma="Huincha flamea", solucion="Cambio de sello", tecnico="")
+    llamadas = []
+
+    class CompletionsFalsas:
+        def create(self, **kwargs):
+            llamadas.append(kwargs)
+            if len(llamadas) == 1:
+                mensaje = bloque(content=None, refusal=None, tool_calls=[
+                    llamada_herramienta("c1", "buscar_manuales", '{"consulta": "E-104"}'),
+                    llamada_herramienta("c2", "buscar_bitacora", '{"consulta": "huincha flamea"}'),
+                ])
+                return bloque(choices=[bloque(message=mensaje, finish_reason="tool_calls")])
+            refs = [m["content"].split("]")[0].lstrip("[") for m in kwargs["messages"] if m["role"] == "tool"]
+            texto = "## Diagnóstico\nTensión baja " + " ".join(f"[{r}]" for r in refs)
+            return bloque(choices=[bloque(message=bloque(content=texto, refusal=None, tool_calls=None), finish_reason="stop")])
+
+    recibido = {}
+
+    def cliente(**kwargs):
+        recibido.update(kwargs)
+        return SimpleNamespace(chat=SimpleNamespace(completions=CompletionsFalsas()))
+
+    monkeypatch.setattr("openai.OpenAI", cliente)
+
+    respuesta = motor.consultar("la huincha flamea con E-104")
+    assert respuesta.modo == "openai" and respuesta.aviso is None
+    assert recibido["api_key"] == "sk-openai-prueba"
+    assert llamadas[0]["model"] == agente.MODELO_POR_DEFECTO["openai"]
+    assert llamadas[0]["messages"][0]["role"] == "system"
+    assert [p["herramienta"] for p in respuesta.pasos] == ["buscar_manuales", "buscar_bitacora"]
+    assert {f["tipo"] for f in respuesta.fuentes} == {"manual", "arreglo"}
+    # Segunda vuelta: el asistente con tool_calls, seguido de un mensaje "tool" por llamada.
+    roles = [m["role"] for m in llamadas[1]["messages"]]
+    assert roles == ["system", "user", "assistant", "tool", "tool"]
+    assert len(motor.hilos[respuesta.hilo_id].mensajes) == 5
+
+
+def test_ajustes_por_proveedor(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    ajustes = agente.Ajustes(tmp_path / "config.json")
+    assert ajustes.proveedor == "openai"  # proveedor por defecto
+    ajustes.actualizar(proveedor="anthropic", clave_api="sk-ant-1234")
+    assert ajustes.llm_listo
+    ajustes.actualizar(proveedor="openai")
+    assert not ajustes.llm_listo  # la key de Anthropic no sirve para OpenAI
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-env-9999")
+    publicos = agente.Ajustes(tmp_path / "config.json").publicos()
+    assert publicos["llm_listo"] and publicos["pista_clave_openai"] == "…9999" and publicos["pista_clave"] == "…1234"
+    with pytest.raises(ValueError):
+        ajustes.actualizar(proveedor="otro")
+
+
+def test_si_falla_la_ia_pasa_a_modo_local(motor, monkeypatch):
     def falla(**_):
         raise RuntimeError("sin red")
 
+    motor.ajustes.actualizar(proveedor="anthropic", clave_api="sk-prueba")
     monkeypatch.setattr("anthropic.Anthropic", lambda **_: SimpleNamespace(beta=SimpleNamespace(messages=SimpleNamespace(create=falla))))
     respuesta = motor.consultar("E-207 aceite caliente")
-    assert respuesta.modo == "local" and "sin red" in respuesta.aviso
+    assert respuesta.modo == "local" and "Claude" in respuesta.aviso and "sin red" in respuesta.aviso
+
+    motor.ajustes.actualizar(proveedor="openai", clave_openai="sk-openai")
+    monkeypatch.setattr("openai.OpenAI", lambda **_: SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=falla))))
+    respuesta = motor.consultar("E-207 aceite caliente")
+    assert respuesta.modo == "local" and "OpenAI" in respuesta.aviso
     assert motor.hilos[respuesta.hilo_id].mensajes == []
 
 
