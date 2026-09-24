@@ -1,0 +1,15 @@
+[package]
+name = "quasar"
+version = "0.1.0"
+description = "Quasar: asistente de diagnóstico de fallas en maquinaria industrial"
+edition = "2021"
+
+[lib]
+name = "quasar_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }

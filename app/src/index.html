@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Quasar</title>
+  <link rel="stylesheet" href="estilos.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="lateral">
+      <div class="marca">
+        <span class="marca-logo" aria-hidden="true"></span>
+        <div>
+          <div class="marca-nombre">Quasar</div>
+          <div class="marca-sub">Diagnóstico de fallas</div>
+        </div>
+      </div>
+      <nav class="nav">
+        <button class="nav-item activa" data-vista="diagnostico">
+          <svg viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/></svg>
+          Diagnóstico
+        </button>
+        <button class="nav-item" data-vista="manuales">
+          <svg viewBox="0 0 24 24"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19V5M8 7h7"/></svg>
+          Manuales <span class="contador" id="contador-manuales"></span>
+        </button>
+        <button class="nav-item" data-vista="bitacora">
+          <svg viewBox="0 0 24 24"><path d="M8 4h8M9 2h6v4H9zM6 4H5v18h14V4h-1M8 11h8M8 15h5"/></svg>
+          Bitácora <span class="contador" id="contador-arreglos"></span>
+        </button>
+        <button class="nav-item" data-vista="historial">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          Historial
+        </button>
+        <button class="nav-item" data-vista="ajustes">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6a7 7 0 0 0 0 2.4l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z"/></svg>
+          Ajustes
+        </button>
+      </nav>
+      <div class="motor-estado" id="motor-estado">
+        <span class="punto"></span><span id="motor-texto">Iniciando motor…</span>
+      </div>
+    </aside>
+
+    <main class="principal">
+      <!-- Diagnóstico -->
+      <section class="vista activa" id="vista-diagnostico">
+        <header class="cabecera">
+          <div>
+            <h1>Diagnóstico</h1>
+            <p class="bajada">Describe la falla con tus palabras. Quasar busca en los manuales y en la bitácora de la planta.</p>
+          </div>
+          <button class="btn fantasma" id="nueva-consulta" hidden>Nueva consulta</button>
+        </header>
+        <div class="hilo" id="hilo">
+          <div class="vacio" id="diagnostico-vacio">
+            <p class="vacio-titulo">¿Qué está fallando?</p>
+            <p class="tenue">Prueba con uno de estos ejemplos:</p>
+            <div class="sugerencias">
+              <button class="sugerencia" data-pregunta="La huincha flamea y el corte sale ondulado, aparece E-104">La huincha flamea y aparece E-104</button>
+              <button class="sugerencia" data-pregunta="El aceite hidráulico se calienta mucho después de una hora de trabajo">El aceite hidráulico se calienta mucho</button>
+              <button class="sugerencia" data-pregunta="El motor principal se detiene cuando corto madera dura">El motor se detiene con madera dura</button>
+            </div>
+          </div>
+        </div>
+        <form class="redactor" id="redactor">
+          <textarea id="pregunta" rows="2" placeholder="Ej.: la sierra hace ruido metálico y el volante se calienta…"></textarea>
+          <div class="redactor-barra">
+            <span class="pista">Ctrl + Enter para enviar</span>
+            <button class="btn primario" type="submit" id="boton-diagnosticar">Diagnosticar</button>
+          </div>
+        </form>
+      </section>
+
+      <!-- Manuales -->
+      <section class="vista" id="vista-manuales">
+        <header class="cabecera">
+          <div>
+            <h1>Manuales</h1>
+            <p class="bajada">Sube los manuales del fabricante (PDF, TXT o MD). Quasar los divide en fragmentos y los indexa para la búsqueda.</p>
+          </div>
+        </header>
+        <label class="zona-subida" id="zona-subida">
+          <input type="file" id="selector-archivos" accept=".pdf,.txt,.md" multiple hidden />
+          <span class="zona-titulo">Arrastra archivos aquí o <u>elige desde tu equipo</u></span>
+          <span class="tenue chico">PDF con texto seleccionable, TXT o Markdown · máx. 60 MB</span>
+        </label>
+        <div class="lista" id="lista-manuales"></div>
+      </section>
+
+      <!-- Bitácora -->
+      <section class="vista" id="vista-bitacora">
+        <header class="cabecera">
+          <div>
+            <h1>Bitácora</h1>
+            <p class="bajada">Los arreglos que registran los técnicos. El asistente los consulta para responder mejor la próxima vez.</p>
+          </div>
+          <button class="btn primario" id="alternar-arreglo">Nuevo registro</button>
+        </header>
+        <form class="tarjeta form" id="form-arreglo" hidden>
+          <div class="grilla2">
+            <label>Máquina<input name="maquina" placeholder="Sierra huincha SH-900" /></label>
+            <label>Código de error<input name="codigo_error" placeholder="E-104" /></label>
+          </div>
+          <label>Síntoma<textarea name="sintoma" rows="2" required placeholder="Qué se observó"></textarea></label>
+          <label>Solución aplicada<textarea name="solucion" rows="3" required placeholder="Qué se hizo para repararlo"></textarea></label>
+          <div class="form-barra">
+            <label class="en-linea">Técnico<input name="tecnico" placeholder="Nombre" /></label>
+            <div class="espaciador"></div>
+            <button type="button" class="btn fantasma" id="cancelar-arreglo">Cancelar</button>
+            <button type="submit" class="btn primario">Guardar</button>
+          </div>
+        </form>
+        <input class="buscador" id="buscar-arreglos" type="search" placeholder="Buscar por máquina, código o síntoma…" />
+        <div class="lista" id="lista-arreglos"></div>
+      </section>
+
+      <!-- Historial -->
+      <section class="vista" id="vista-historial">
+        <header class="cabecera">
+          <div>
+            <h1>Historial</h1>
+            <p class="bajada">Consultas recientes realizadas en este equipo.</p>
+          </div>
+        </header>
+        <div class="lista" id="lista-historial"></div>
+      </section>
+
+      <!-- Ajustes -->
+      <section class="vista" id="vista-ajustes">
+        <header class="cabecera">
+          <div>
+            <h1>Ajustes</h1>
+            <p class="bajada">Conecta Quasar a Claude. Sin API key funciona en modo local, mostrando los fragmentos más relevantes.</p>
+          </div>
+        </header>
+        <form class="tarjeta form angosto" id="form-ajustes">
+          <label>API key de Anthropic
+            <input name="clave_api" type="password" autocomplete="off" placeholder="sk-ant-…" />
+            <span class="tenue chico" id="pista-clave"></span>
+          </label>
+          <label>Modelo
+            <select name="modelo">
+              <option value="claude-opus-5">Claude Opus 5 — máxima precisión</option>
+              <option value="claude-sonnet-5">Claude Sonnet 5 — equilibrado</option>
+              <option value="claude-haiku-4-5">Claude Haiku 4.5 — más rápido</option>
+            </select>
+          </label>
+          <div class="form-barra">
+            <div class="espaciador"></div>
+            <button type="submit" class="btn primario">Guardar</button>
+          </div>
+        </form>
+      </section>
+    </main>
+  </div>
+  <div class="notificacion" id="notificacion" role="status"></div>
+  <script src="principal.js"></script>
+</body>
+</html>
