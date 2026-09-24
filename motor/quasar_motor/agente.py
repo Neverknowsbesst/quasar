@@ -1,4 +1,4 @@
-"""El motor (harness): bucle de agente con herramientas (RAG) sobre Claude, con modo local."""
+"""El motor (harness): bucle de agente con herramientas (RAG) sobre Claude u OpenAI, con modo local."""
 
 from __future__ import annotations
 
@@ -10,7 +10,8 @@ from dataclasses import asdict, dataclass, field
 
 from .conocimiento import Conocimiento
 
-MODELO_POR_DEFECTO = "claude-opus-5"
+PROVEEDORES = ("anthropic", "openai")
+MODELO_POR_DEFECTO = {"anthropic": "claude-opus-5", "openai": "gpt-5-mini"}
 # Modelos donde activamos el respaldo del lado del servidor ante un rechazo.
 MODELOS_CON_RESPALDO = {"claude-opus-5", "claude-fable-5-1"}
 MAX_VUELTAS = 8
@@ -71,18 +72,25 @@ HERRAMIENTAS = [
     },
 ]
 
+# Las mismas herramientas en el formato de OpenAI (function calling).
+HERRAMIENTAS_OPENAI = [
+    {"type": "function", "function": {"name": h["name"], "description": h["description"], "parameters": h["input_schema"]}}
+    for h in HERRAMIENTAS
+]
+
 
 @dataclass
 class Hilo:
     id: str
     mensajes: list = field(default_factory=list)
+    proveedor: str | None = None
 
 
 @dataclass
 class Respuesta:
     hilo_id: str
     respuesta: str
-    modo: str  # "claude" | "local"
+    modo: str  # "anthropic" | "openai" | "local"
     fuentes: list[dict] = field(default_factory=list)
     pasos: list[dict] = field(default_factory=list)
     aviso: str | None = None
@@ -94,14 +102,19 @@ class Respuesta:
 class Ajustes:
     """Ajustes persistidos en config.json dentro del directorio de datos."""
 
+    CLAVES = ("proveedor", "clave_api", "modelo", "clave_openai", "modelo_openai")
+    VARIABLES_ENTORNO = {"anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY"}
+
     def __init__(self, ruta):
         self.ruta = ruta
-        self.valores = {"clave_api": "", "modelo": MODELO_POR_DEFECTO}
+        self.valores = {"proveedor": "openai"}
         if ruta.exists():
             self.valores.update(json.loads(ruta.read_text()))
 
     def actualizar(self, **valores) -> None:
-        self.valores.update({k: v for k, v in valores.items() if k in ("clave_api", "modelo") and v is not None})
+        if valores.get("proveedor") not in (None, *PROVEEDORES):
+            raise ValueError(f"Proveedor desconocido: {valores['proveedor']}")
+        self.valores.update({k: v for k, v in valores.items() if k in self.CLAVES and v is not None})
         self.ruta.write_text(json.dumps(self.valores))
         try:
             os.chmod(self.ruta, 0o600)
@@ -109,23 +122,44 @@ class Ajustes:
             pass
 
     @property
+    def proveedor(self) -> str:
+        proveedor = self.valores.get("proveedor")
+        return proveedor if proveedor in PROVEEDORES else "openai"
+
+    def clave_de(self, proveedor: str) -> str:
+        campo = "clave_api" if proveedor == "anthropic" else "clave_openai"
+        return self.valores.get(campo) or os.environ.get(self.VARIABLES_ENTORNO[proveedor], "")
+
+    def modelo_de(self, proveedor: str) -> str:
+        campo = "modelo" if proveedor == "anthropic" else "modelo_openai"
+        return self.valores.get(campo) or MODELO_POR_DEFECTO[proveedor]
+
+    @property
     def clave_api(self) -> str:
-        return self.valores.get("clave_api") or os.environ.get("ANTHROPIC_API_KEY", "")
+        return self.clave_de(self.proveedor)
 
     @property
     def modelo(self) -> str:
-        return self.valores.get("modelo") or MODELO_POR_DEFECTO
+        return self.modelo_de(self.proveedor)
 
     @property
     def llm_listo(self) -> bool:
-        return bool(self.clave_api or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
+        if self.proveedor == "anthropic" and os.environ.get("ANTHROPIC_AUTH_TOKEN"):
+            return True
+        return bool(self.clave_api)
 
     def publicos(self) -> dict:
-        clave = self.clave_api
+        def pista(clave: str) -> str:
+            return f"…{clave[-4:]}" if clave else ""
+
         return {
+            "proveedor": self.proveedor,
             "modelo": self.modelo,
             "llm_listo": self.llm_listo,
-            "pista_clave": f"…{clave[-4:]}" if clave else "",
+            "modelo_anthropic": self.modelo_de("anthropic"),
+            "modelo_openai": self.modelo_de("openai"),
+            "pista_clave": pista(self.clave_de("anthropic")),
+            "pista_clave_openai": pista(self.clave_de("openai")),
         }
 
 
@@ -175,18 +209,41 @@ class Motor:
 
         if not self.ajustes.llm_listo:
             respuesta = self._local(pregunta, hilo.id)
-            respuesta.aviso = "Sin API key de Claude: mostrando los fragmentos más relevantes. Configúrala en Ajustes."
+            respuesta.aviso = "Sin API key configurada: mostrando los fragmentos más relevantes. Configúrala en Ajustes."
         else:
+            proveedor = self.ajustes.proveedor
             try:
-                respuesta = self._agente(pregunta, hilo)
+                if proveedor == "openai":
+                    respuesta = self._agente_openai(pregunta, hilo)
+                else:
+                    respuesta = self._agente_anthropic(pregunta, hilo)
             except Exception as exc:  # noqa: BLE001 - cualquier fallo del LLM degrada a modo local
                 respuesta = self._local(pregunta, hilo.id)
-                respuesta.aviso = f"No se pudo consultar a Claude ({_describir_error(exc)}). Mostrando búsqueda local."
+                nombre = "OpenAI" if proveedor == "openai" else "Claude"
+                respuesta.aviso = f"No se pudo consultar a {nombre} ({_describir_error(exc)}). Mostrando búsqueda local."
 
         self.bc.almacen.agregar_consulta(pregunta, respuesta.respuesta, respuesta.fuentes, respuesta.modo)
         return respuesta
 
-    def _agente(self, pregunta: str, hilo: Hilo) -> Respuesta:
+    def _preparar_hilo(self, hilo: Hilo, proveedor: str) -> list:
+        """Copia de la conversación; si cambió el proveedor, el historial anterior no es compatible."""
+        if hilo.proveedor != proveedor:
+            hilo.mensajes, hilo.proveedor = [], proveedor
+        return list(hilo.mensajes)
+
+    def _ejecutar_llamada(self, nombre: str, argumentos: dict, fuentes: dict, pasos: list) -> tuple[str, bool]:
+        try:
+            salida, es_error = self.ejecutar_herramienta(nombre, argumentos, fuentes), False
+        except Exception as exc:  # noqa: BLE001 - el error vuelve al modelo como resultado de la herramienta
+            salida, es_error = f"Error: {exc}", True
+        pasos.append({"herramienta": nombre, "entrada": argumentos, "vista_previa": salida[:200]})
+        return salida, es_error
+
+    @staticmethod
+    def _citadas(fuentes: dict, texto: str) -> list[dict]:
+        return [f for ref, f in fuentes.items() if f"[{ref}]" in texto] or list(fuentes.values())
+
+    def _agente_anthropic(self, pregunta: str, hilo: Hilo) -> Respuesta:
         import anthropic
 
         cliente = anthropic.Anthropic(api_key=self.ajustes.clave_api or None)
@@ -196,7 +253,7 @@ class Motor:
             extra = {"betas": ["server-side-fallback-2026-07-01"], "fallbacks": "default"}
 
         # Copia: si algo falla a mitad de camino, el hilo queda intacto.
-        mensajes = hilo.mensajes + [{"role": "user", "content": pregunta}]
+        mensajes = self._preparar_hilo(hilo, "anthropic") + [{"role": "user", "content": pregunta}]
         pasos: list[dict] = []
         fuentes: dict[str, dict] = {}
         for _ in range(MAX_VUELTAS):
@@ -220,11 +277,7 @@ class Motor:
             for bloque in contenido:
                 if bloque.type != "tool_use":
                     continue
-                try:
-                    salida, es_error = self.ejecutar_herramienta(bloque.name, bloque.input, fuentes), False
-                except Exception as exc:  # noqa: BLE001 - el error vuelve al modelo como tool_result
-                    salida, es_error = f"Error: {exc}", True
-                pasos.append({"herramienta": bloque.name, "entrada": bloque.input, "vista_previa": salida[:200]})
+                salida, es_error = self._ejecutar_llamada(bloque.name, bloque.input, fuentes, pasos)
                 resultados_herramientas.append(
                     {"type": "tool_result", "tool_use_id": bloque.id, "content": salida, "is_error": es_error}
                 )
@@ -237,8 +290,58 @@ class Motor:
         else:
             texto = "\n".join(b.text for b in resultado.content if b.type == "text").strip()
         hilo.mensajes = mensajes
-        citadas = [f for ref, f in fuentes.items() if f"[{ref}]" in texto] or list(fuentes.values())
-        return Respuesta(hilo.id, texto, "claude", citadas, pasos)
+        return Respuesta(hilo.id, texto, "anthropic", self._citadas(fuentes, texto), pasos)
+
+    def _agente_openai(self, pregunta: str, hilo: Hilo) -> Respuesta:
+        import openai
+
+        cliente = openai.OpenAI(api_key=self.ajustes.clave_de("openai"))
+        modelo = self.ajustes.modelo_de("openai")
+
+        # Copia: si algo falla a mitad de camino, el hilo queda intacto.
+        mensajes = self._preparar_hilo(hilo, "openai") + [{"role": "user", "content": pregunta}]
+        pasos: list[dict] = []
+        fuentes: dict[str, dict] = {}
+        for _ in range(MAX_VUELTAS):
+            resultado = cliente.chat.completions.create(
+                model=modelo,
+                messages=[{"role": "system", "content": INSTRUCCIONES}, *mensajes],
+                tools=HERRAMIENTAS_OPENAI,
+                max_completion_tokens=16000,
+            )
+            eleccion = resultado.choices[0]
+            mensaje = eleccion.message
+            llamadas = [ll for ll in (mensaje.tool_calls or []) if ll.type == "function"]
+            mensajes.append({
+                "role": "assistant",
+                "content": mensaje.content,
+                **({"tool_calls": [
+                    {"id": ll.id, "type": "function", "function": {"name": ll.function.name, "arguments": ll.function.arguments}}
+                    for ll in llamadas
+                ]} if llamadas else {}),
+            })
+            if not llamadas:
+                break
+            for llamada in llamadas:
+                try:
+                    argumentos = json.loads(llamada.function.arguments or "{}")
+                except json.JSONDecodeError:
+                    salida = "Error: los argumentos no son JSON válido."
+                    pasos.append({"herramienta": llamada.function.name, "entrada": {}, "vista_previa": salida})
+                else:
+                    salida, _ = self._ejecutar_llamada(llamada.function.name, argumentos, fuentes, pasos)
+                mensajes.append({"role": "tool", "tool_call_id": llamada.id, "content": salida})
+        else:
+            raise RuntimeError("el agente superó el máximo de pasos")
+
+        if mensaje.refusal:
+            texto = "El modelo no pudo responder esta consulta. Reformúlala describiendo la falla técnica."
+        else:
+            texto = (mensaje.content or "").strip()
+            if eleccion.finish_reason == "length":
+                texto += "\n\n_(Respuesta cortada por largo.)_"
+        hilo.mensajes = mensajes
+        return Respuesta(hilo.id, texto, "openai", self._citadas(fuentes, texto), pasos)
 
     def _local(self, pregunta: str, hilo_id: str) -> Respuesta:
         manuales = self.bc.buscar_manuales(pregunta, 3)
@@ -267,16 +370,22 @@ class Motor:
 
 
 def _describir_error(exc: Exception) -> str:
-    try:
-        import anthropic
-    except ImportError:
-        return "falta instalar el paquete anthropic"
-    if isinstance(exc, anthropic.AuthenticationError):
-        return "API key inválida"
-    if isinstance(exc, anthropic.RateLimitError):
-        return "límite de uso alcanzado"
-    if isinstance(exc, anthropic.APIConnectionError):
-        return "sin conexión"
-    if isinstance(exc, anthropic.APIStatusError):
-        return f"error {exc.status_code}"
+    """Traduce los errores de los SDK de Anthropic y OpenAI (que usan los mismos nombres)."""
+    modulos = []
+    for nombre in ("anthropic", "openai"):
+        try:
+            modulos.append(__import__(nombre))
+        except ImportError:
+            pass
+    for sdk in modulos:
+        if isinstance(exc, sdk.AuthenticationError):
+            return "API key inválida"
+        if isinstance(exc, sdk.RateLimitError):
+            return "límite de uso o saldo agotado"
+        if isinstance(exc, sdk.APIConnectionError):
+            return "sin conexión"
+        if isinstance(exc, sdk.APIStatusError):
+            return f"error {exc.status_code}"
+    if isinstance(exc, ImportError):
+        return f"falta instalar el paquete {exc.name}"
     return str(exc) or type(exc).__name__

@@ -28,7 +28,8 @@ Es una aplicación de escritorio (Tauri) con el motor del agente (el *harness*) 
 ## Cómo funciona el motor
 
 1. El técnico escribe la falla («la huincha flamea y aparece E-104»).
-2. El agente (Claude, por defecto `claude-opus-5`) decide qué herramientas usar:
+2. El agente decide qué herramientas usar. Funciona con **OpenAI** (por defecto `gpt-5-mini`) o con **Claude** de
+   Anthropic (por defecto `claude-opus-5`); se elige en Ajustes:
    - `buscar_manuales`: busca en los fragmentos de los manuales cargados (BM25, detecta códigos como `E-104`).
    - `buscar_bitacora`: busca en la bitácora de arreglos anteriores.
    - `listar_manuales`: lista los manuales disponibles.
@@ -38,8 +39,10 @@ Es una aplicación de escritorio (Tauri) con el motor del agente (el *harness*) 
 Las preguntas de seguimiento continúan la misma conversación. Sin API key (o sin internet), Quasar funciona en
 **modo local**: muestra los fragmentos y arreglos más relevantes sin pasar por el modelo.
 
-Con `claude-opus-5` se activa el respaldo (*fallback*) del lado del servidor (`fallbacks: "default"`): si el modelo rechaza
-una consulta, la API la reintenta con otro modelo automáticamente.
+Las búsquedas, la bitácora y la interfaz son las mismas con los dos proveedores; solo cambia la parte que
+conversa con la IA (`_agente_openai` y `_agente_anthropic` en `agente.py`). Con `claude-opus-5` se activa además
+el respaldo (*fallback*) del lado del servidor (`fallbacks: "default"`): si el modelo rechaza una consulta, la API
+la reintenta con otro modelo automáticamente.
 
 ## Requisitos
 
@@ -66,8 +69,9 @@ python -m quasar_motor --interfaz ../app/src     # http://127.0.0.1:8765
 
 Luego:
 
-1. **Ajustes** → pega tu API key de Anthropic y elige el modelo (se guarda en `~/.quasar/config.json`).
-   También se toma `ANTHROPIC_API_KEY` del entorno.
+1. **Ajustes** → elige el proveedor (OpenAI o Anthropic), pega tu API key y elige el modelo. Se guarda en
+   `~/.quasar/config.json`. También se toman `OPENAI_API_KEY` y `ANTHROPIC_API_KEY` del entorno.
+   La key de OpenAI se crea en https://platform.openai.com/api-keys.
 2. **Manuales** → arrastra los PDF del fabricante, o pulsa *Cargar manual de ejemplo* (sierra huincha SH-900 ficticia).
 3. **Diagnóstico** → describe la falla.
 
@@ -75,7 +79,8 @@ Luego:
 
 | Variable | Uso |
 |---|---|
-| `ANTHROPIC_API_KEY` | API key (alternativa a Ajustes) |
+| `OPENAI_API_KEY` | API key de OpenAI (alternativa a Ajustes) |
+| `ANTHROPIC_API_KEY` | API key de Anthropic (alternativa a Ajustes) |
 | `QUASAR_DIR_DATOS` | Carpeta de datos (por defecto `~/.quasar`) |
 | `QUASAR_PYTHON` | Intérprete que usa la app de escritorio (por defecto `python3`, o `python` en Windows) |
 | `QUASAR_DIR_MOTOR` | Carpeta del motor, si no está junto a la app |

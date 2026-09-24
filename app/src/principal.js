@@ -32,6 +32,9 @@ function notificar(mensaje, esError = false) {
   notificar.temporizador = setTimeout(() => el.classList.remove("visible"), 3200);
 }
 
+const NOMBRES_MODO = { anthropic: "Claude", openai: "OpenAI", local: "Búsqueda local" };
+const nombreModo = (modo) => NOMBRES_MODO[modo] || modo;
+
 const formatearFecha = (ts) =>
   new Date(ts * 1000).toLocaleString("es-CL", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
@@ -106,7 +109,7 @@ async function actualizarEstado() {
   try {
     const e = await api("/api/estado");
     motor.className = `motor-estado ${e.llm_listo ? "bien" : "local"}`;
-    $("#motor-texto").textContent = e.llm_listo ? `Claude · ${e.modelo}` : "Modo local (sin API key)";
+    $("#motor-texto").textContent = e.llm_listo ? `${nombreModo(e.proveedor)} · ${e.modelo}` : "Modo local (sin API key)";
     $("#contador-manuales").textContent = e.manuales || "";
     $("#contador-arreglos").textContent = e.arreglos || "";
     return true;
@@ -150,7 +153,7 @@ function dibujarRespuesta(textoPregunta, r) {
     .join("");
   el.innerHTML = `
     <div class="respuesta-meta">
-      <span class="etiqueta ${r.modo === "claude" ? "" : "local"}">${r.modo === "claude" ? "Claude" : "Búsqueda local"}</span>
+      <span class="etiqueta ${r.modo === "local" ? "local" : ""}">${nombreModo(r.modo)}</span>
       <span>${r.fuentes.length} fuente${r.fuentes.length === 1 ? "" : "s"}</span>
     </div>
     ${r.aviso ? `<p class="aviso">${escapar(r.aviso)}</p>` : ""}
@@ -368,7 +371,7 @@ async function cargarHistorial() {
         .map(
           (c) => `<details class="hist">
         <summary><span class="fila-titulo">${escapar(c.pregunta)}</span>
-          <span class="etiqueta ${c.modo === "claude" ? "" : "local"}">${c.modo === "claude" ? "Claude" : "Local"}</span>
+          <span class="etiqueta ${c.modo === "local" ? "local" : ""}">${nombreModo(c.modo)}</span>
           <span class="tenue chico">${formatearFecha(c.creado_en)}</span></summary>
         <div class="md">${markdown(c.respuesta)}</div>
       </details>`
@@ -381,21 +384,41 @@ async function cargarHistorial() {
 
 const formAjustes = $("#form-ajustes");
 
+function mostrarGrupoProveedor() {
+  const proveedor = formAjustes.elements.proveedor.value;
+  $$(".grupo-proveedor", formAjustes).forEach((g) => (g.hidden = g.dataset.proveedor !== proveedor));
+}
+formAjustes.elements.proveedor.addEventListener("change", mostrarGrupoProveedor);
+
+const textoPista = (pista) =>
+  pista ? `Clave guardada (${pista}). Deja el campo vacío para mantenerla.` : "Se guarda solo en este equipo.";
+
 async function cargarAjustes() {
   const a = await api("/api/ajustes").catch(() => null);
   if (!a) return;
-  formAjustes.elements.modelo.value = a.modelo;
-  formAjustes.elements.clave_api.value = "";
-  $("#pista-clave").textContent = a.pista_clave
-    ? `Clave guardada (${a.pista_clave}). Deja el campo vacío para mantenerla.`
-    : "Se guarda solo en este equipo.";
+  const campos = formAjustes.elements;
+  campos.proveedor.value = a.proveedor;
+  campos.modelo.value = a.modelo_anthropic;
+  campos.modelo_openai.value = a.modelo_openai;
+  campos.clave_api.value = "";
+  campos.clave_openai.value = "";
+  $("#pista-clave").textContent = textoPista(a.pista_clave);
+  $("#pista-clave-openai").textContent = textoPista(a.pista_clave_openai);
+  mostrarGrupoProveedor();
 }
 
 formAjustes.addEventListener("submit", async (e) => {
   e.preventDefault();
-  const cuerpo = { modelo: formAjustes.elements.modelo.value };
-  const clave = formAjustes.elements.clave_api.value.trim();
-  if (clave) cuerpo.clave_api = clave;
+  const campos = formAjustes.elements;
+  const cuerpo = {
+    proveedor: campos.proveedor.value,
+    modelo: campos.modelo.value,
+    modelo_openai: campos.modelo_openai.value.trim(),
+  };
+  for (const clave of ["clave_api", "clave_openai"]) {
+    const valor = campos[clave].value.trim();
+    if (valor) cuerpo[clave] = valor;
+  }
   try {
     await api("/api/ajustes", { metodo: "PUT", cuerpo });
     notificar("Ajustes guardados");

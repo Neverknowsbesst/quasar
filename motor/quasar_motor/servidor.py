@@ -41,7 +41,10 @@ def crear_manejador(motor: Motor, dir_interfaz: Path | None):
         return motor.ajustes.publicos()
 
     def guardar_ajustes(_s, cuerpo):
-        motor.ajustes.actualizar(clave_api=cuerpo.get("clave_api"), modelo=cuerpo.get("modelo"))
+        try:
+            motor.ajustes.actualizar(**{campo: cuerpo.get(campo) for campo in Ajustes.CLAVES})
+        except ValueError as exc:
+            raise ErrorApi(400, str(exc)) from exc
         return motor.ajustes.publicos()
 
     def listar_manuales(_s, _cuerpo):
